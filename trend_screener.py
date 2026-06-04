@@ -11,25 +11,36 @@ TS_TOKEN = os.environ.get('TUSHARE_TOKEN')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
 SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD')
 RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL')
-BACKTEST_DATE = '20250112'
-TEST_STOCKS = ['000510.SZ']
+
+# ========== 回测设置 ==========
+# 回测日期，格式：20251219，填 None 则使用当天
+BACKTEST_DATE = '20260112'  # 改成你想回测的日期
+
+# 指定要筛选的股票（留空则筛选全市场）
+TEST_STOCKS = ['000510.SZ', '002859.SZ']
 # ========== 配置结束 ==========
 
-# 筛选参数
-MAX_RETRACE = 8
-MIN_VOL_RATIO = 1.2
-MAX_VOL_RATIO = 2.5
-MIN_TURNOVER = 3
-MAX_TURNOVER = 15
-MIN_GAIN_20D = 15
-MAX_GAIN_20D = 50
+# ========== 宽松版筛选参数 ==========
+MAX_RETRACE = 12          # 近10日最大回撤 < 12%
+MIN_VOL_RATIO = 0.8       # 最小时量比（允许缩量）
+MAX_VOL_RATIO = 3.5       # 最大量比（允许爆量）
+MIN_TURNOVER = 2          # 最低换手率 2%
+MAX_TURNOVER = 20         # 最高换手率 20%
+MIN_GAIN_20D = 10         # 近20日最小涨幅 10%
+MAX_GAIN_20D = 60         # 近20日最大涨幅 60%
+# ========== 配置结束 ==========
 
 ts.set_token(TS_TOKEN)
 pro = ts.pro_api()
 
 def get_all_stocks():
-    """获取所有A股列表 - 使用 trade_cal 接口替代"""
-    # 先获取交易日历，拿到最新交易日
+    """获取所有A股列表"""
+    if TEST_STOCKS:
+        stocks = []
+        for code in TEST_STOCKS:
+            stocks.append({'ts_code': code, 'name': code.split('.')[0]})
+        return pd.DataFrame(stocks)
+    
     try:
         cal = pro.trade_cal(exchange='SSE', start_date='20200101', end_date=datetime.now().strftime('%Y%m%d'))
         trade_dates = cal[cal['is_open'] == 1]['cal_date'].tolist()
@@ -37,39 +48,18 @@ def get_all_stocks():
     except:
         latest_date = datetime.now().strftime('%Y%m%d')
     
-    # 通过日线数据获取所有有交易的股票
     try:
-        # 获取当天有交易的股票代码
         daily = pro.daily(trade_date=latest_date, fields='ts_code')
         if daily is not None and len(daily) > 0:
-            # 获取股票名称
             codes = daily['ts_code'].tolist()
-            names = []
-            for code in codes:
-                # 从代码中提取简单名称
-                if code.startswith('6'):
-                    name = code.split('.')[0]
-                else:
-                    name = code.split('.')[0]
-                names.append(name)
-            
-            df = pd.DataFrame({'ts_code': codes, 'name': names})
-            # 剔除北交所
+            df = pd.DataFrame({'ts_code': codes, 'name': [c.split('.')[0] for c in codes]})
             df = df[~df['ts_code'].str.endswith('BJ')]
             return df
     except:
         pass
     
-    # 备选方案：使用固定的大盘股列表（确保有数据）
-    default_stocks = [
-        '000001.SZ', '000002.SZ', '000858.SZ', '002415.SZ', '300750.SZ',
-        '600519.SH', '600036.SH', '601318.SH', '601166.SH', '600900.SH',
-        '601398.SH', '600276.SH', '601288.SH', '600030.SH', '601328.SH'
-    ]
-    default_names = ['平安银行', '万科A', '五粮液', '海康威视', '宁德时代',
-                     '贵州茅台', '招商银行', '中国平安', '兴业银行', '长江电力',
-                     '工商银行', '恒瑞医药', '农业银行', '中信证券', '交通银行']
-    return pd.DataFrame({'ts_code': default_stocks, 'name': default_names})
+    default_stocks = ['000001.SZ', '000002.SZ', '000858.SZ', '002415.SZ', '300750.SZ']
+    return pd.DataFrame({'ts_code': default_stocks, 'name': [c.split('.')[0] for c in default_stocks]})
 
 def get_ma_data(code, end_date):
     """获取均线数据"""
@@ -107,14 +97,16 @@ def get_ma_data(code, end_date):
         return None
 
 def check_trend(data):
-    """检查是否符合趋势票条件"""
+    """检查是否符合趋势票条件（宽松版）"""
     if data is None:
         return False
-    if pd.isna(data['ma5']) or pd.isna(data['ma10']) or pd.isna(data['ma20']) or pd.isna(data['ma60']):
+    if pd.isna(data['ma5']) or pd.isna(data['ma10']) or pd.isna(data['ma20']):
         return False
-    if not (data['ma5'] > data['ma10'] > data['ma20'] > data['ma60']):
+    # 均线条件：5 > 10 > 20（不要求60日线）
+    if not (data['ma5'] > data['ma10'] > data['ma20']):
         return False
-    if data['close'] <= data['ma5']:
+    # 股价在20日线上方（允许跌破5日线）
+    if data['close'] <= data['ma20']:
         return False
     if data['max_retrace'] >= MAX_RETRACE:
         return False
@@ -130,11 +122,11 @@ def check_trend(data):
 def send_email(results, date_str):
     """发送邮件"""
     if not results:
-        subject = f"趋势票筛选 - {date_str} - 今日无符合"
-        body = f"日期：{date_str}\n\n今日无股票符合趋势票条件。\n\n条件：均线多头排列 | 近10日回撤<{MAX_RETRACE}% | 量比{MIN_VOL_RATIO}-{MAX_VOL_RATIO} | 换手率{MIN_TURNOVER}-{MAX_TURNOVER}% | 近20日涨幅{MIN_GAIN_20D}-{MAX_GAIN_20D}%"
+        subject = f"趋势票筛选回测 - {date_str} - 无符合"
+        body = f"回测日期：{date_str}\n\n无股票符合趋势票条件。"
     else:
-        subject = f"趋势票筛选 - {date_str} - 发现{len(results)}只"
-        body = f"日期：{date_str}\n\n发现 {len(results)} 只股票符合趋势票条件：\n\n"
+        subject = f"趋势票筛选回测 - {date_str} - {len(results)}只"
+        body = f"回测日期：{date_str}\n\n发现 {len(results)} 只股票符合趋势票条件：\n\n"
         for r in results:
             body += f"【{r['code']}】{r['name']}\n"
             body += f"  收盘价：{r['close']:.2f}\n"
@@ -142,25 +134,35 @@ def send_email(results, date_str):
             body += f"  换手率：{r['turnover']:.1f}% | 量比：{r['vol_ratio']:.2f}\n"
             body += f"  近20日涨幅：{r['gain_20d']:.1f}% | 近10日最大回撤：{r['max_retrace']:.1f}%\n\n"
     
-    try:
-        msg = MIMEText(body, 'plain', 'utf-8')
-        msg['Subject'] = Header(subject, 'utf-8')
-        msg['From'] = SENDER_EMAIL
-        msg['To'] = RECEIVER_EMAIL
-        server = smtplib.SMTP('smtp.qq.com', 587)
-        server.starttls()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.sendmail(SENDER_EMAIL, [RECEIVER_EMAIL], msg.as_string())
-        server.quit()
-        print(f"邮件发送成功！共{len(results)}只股票")
-    except Exception as e:
-        print(f"邮件发送失败：{e}")
+    if RECEIVER_EMAIL:
+        try:
+            msg = MIMEText(body, 'plain', 'utf-8')
+            msg['Subject'] = Header(subject, 'utf-8')
+            msg['From'] = SENDER_EMAIL
+            msg['To'] = RECEIVER_EMAIL
+            server = smtplib.SMTP('smtp.qq.com', 587)
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            server.sendmail(SENDER_EMAIL, [RECEIVER_EMAIL], msg.as_string())
+            server.quit()
+            print(f"邮件发送成功！")
+        except Exception as e:
+            print(f"邮件发送失败：{e}")
+    else:
+        print(body)
 
 def main():
+    if BACKTEST_DATE:
+        date_str = BACKTEST_DATE
+        print(f"回测模式 - 日期：{date_str}")
+    else:
+        date_str = datetime.now().strftime('%Y%m%d')
+        print(f"实时模式 - 日期：{date_str}")
+    
     print("=" * 50)
-    print("趋势票筛选器启动")
-    date_str = datetime.now().strftime('%Y-%m-%d')
+    print("趋势票筛选器启动（宽松版）")
     print(f"筛选日期：{date_str}")
+    print(f"条件：回撤<{MAX_RETRACE}% | 量比{MIN_VOL_RATIO}-{MAX_VOL_RATIO} | 换手{MIN_TURNOVER}-{MAX_TURNOVER}% | 20日涨幅{MIN_GAIN_20D}-{MAX_GAIN_20D}%")
     print("=" * 50)
     
     stocks = get_all_stocks()
@@ -174,7 +176,7 @@ def main():
         name = row['name']
         count += 1
         
-        if count % 50 == 0:
+        if count % 10 == 0:
             print(f"已筛选 {count} 只...")
         
         data = get_ma_data(code, date_str)
@@ -198,9 +200,10 @@ def main():
     print("\n" + "=" * 50)
     print(f"筛选完成！共 {len(results)} 只股票符合趋势票条件：")
     for r in results:
-        print(f"{r['code']} {r['name']} | 换手{r['turnover']:.1f}% | 量比{r['vol_ratio']:.2f} | 20日涨幅{r['gain_20d']:.1f}% | 回撤{r['max_retrace']:.1f}%")
+        print(f"{r['code']} {r['name']} | 收盘{r['close']:.2f} | MA5>{r['ma5']:.2f} | 换手{r['turnover']:.1f}% | 量比{r['vol_ratio']:.2f} | 20日涨幅{r['gain_20d']:.1f}% | 回撤{r['max_retrace']:.1f}%")
     
-    send_email(results, date_str)
+    if RECEIVER_EMAIL:
+        send_email(results, date_str)
     print("=" * 50)
 
 if __name__ == "__main__":
