@@ -17,12 +17,10 @@ BACKTEST_DATE = '20260112'  # 改成你想回测的日期
 TEST_STOCKS = ['000510.SZ', '002859.SZ']
 # ========== 配置结束 ==========
 
-# 宽松版筛选参数
+# 筛选参数（去掉换手率）
 MAX_RETRACE = 12
 MIN_VOL_RATIO = 0.8
 MAX_VOL_RATIO = 3.5
-MIN_TURNOVER = 2
-MAX_TURNOVER = 20
 MIN_GAIN_20D = 10
 MAX_GAIN_20D = 60
 
@@ -39,8 +37,9 @@ def get_all_stocks():
 
 def get_ma_data(code, end_date):
     try:
+        # 去掉 turnover_rate 字段
         df = pro.daily(ts_code=code, start_date='', end_date=end_date, limit=80,
-                       fields='trade_date,close,vol,turnover_rate')
+                       fields='trade_date,close,vol')
         if df is None or len(df) < 60:
             return None
         df = df.sort_values('trade_date')
@@ -65,7 +64,6 @@ def get_ma_data(code, end_date):
             'ma5': latest['ma5'], 'ma10': latest['ma10'],
             'ma20': latest['ma20'], 'ma60': latest['ma60'],
             'volume': latest['vol'], 'vol_ma5': latest['vol_ma5'],
-            'turnover': latest['turnover_rate'] if pd.notna(latest['turnover_rate']) else 0,
             'max_retrace': max_retrace, 'gain_20d': gain_20d
         }
     except Exception as e:
@@ -86,8 +84,6 @@ def check_trend(data):
     vol_ratio = data['volume'] / data['vol_ma5'] if data['vol_ma5'] > 0 else 0
     if vol_ratio < MIN_VOL_RATIO or vol_ratio > MAX_VOL_RATIO:
         return False
-    if data['turnover'] < MIN_TURNOVER or data['turnover'] > MAX_TURNOVER:
-        return False
     if data['gain_20d'] < MIN_GAIN_20D or data['gain_20d'] > MAX_GAIN_20D:
         return False
     return True
@@ -96,7 +92,7 @@ def main():
     date_str = BACKTEST_DATE if BACKTEST_DATE else datetime.now().strftime('%Y%m%d')
     print(f"回测模式 - 日期：{date_str}")
     print("=" * 50)
-    print(f"条件：回撤<{MAX_RETRACE}% | 量比{MIN_VOL_RATIO}-{MAX_VOL_RATIO} | 换手{MIN_TURNOVER}-{MAX_TURNOVER}% | 20日涨幅{MIN_GAIN_20D}-{MAX_GAIN_20D}%")
+    print(f"条件：回撤<{MAX_RETRACE}% | 量比{MIN_VOL_RATIO}-{MAX_VOL_RATIO} | 20日涨幅{MIN_GAIN_20D}-{MAX_GAIN_20D}%")
     print("=" * 50)
     
     stocks = get_all_stocks()
@@ -118,21 +114,18 @@ def main():
         vol_ratio = data['volume'] / data['vol_ma5'] if data['vol_ma5'] > 0 else 0
         
         print(f"  收盘: {data['close']:.2f}")
-        print(f"  MA5: {data['ma5']:.2f}, MA10: {data['ma10']:.2f}, MA20: {data['ma20']:.2f}, MA60: {data['ma60']:.2f}")
-        print(f"  换手率: {data['turnover']:.1f}%")
+        print(f"  MA5: {data['ma5']:.2f}, MA10: {data['ma10']:.2f}, MA20: {data['ma20']:.2f}")
         print(f"  量比: {vol_ratio:.2f}")
         print(f"  20日涨幅: {data['gain_20d']:.1f}%")
         print(f"  10日最大回撤: {data['max_retrace']:.1f}%")
         
-        # 逐项判断
         ma_ok = data['ma5'] > data['ma10'] > data['ma20']
         price_ok = data['close'] > data['ma20']
         retrace_ok = data['max_retrace'] < MAX_RETRACE
         vol_ok = MIN_VOL_RATIO <= vol_ratio <= MAX_VOL_RATIO
-        turnover_ok = MIN_TURNOVER <= data['turnover'] <= MAX_TURNOVER
         gain_ok = MIN_GAIN_20D <= data['gain_20d'] <= MAX_GAIN_20D
         
-        print(f"  判断: 均线{'✅' if ma_ok else '❌'} | 股价>MA20{'✅' if price_ok else '❌'} | 回撤{'✅' if retrace_ok else '❌'} | 量比{'✅' if vol_ok else '❌'} | 换手{'✅' if turnover_ok else '❌'} | 涨幅{'✅' if gain_ok else '❌'}")
+        print(f"  判断: 均线{'✅' if ma_ok else '❌'} | 股价>MA20{'✅' if price_ok else '❌'} | 回撤{'✅' if retrace_ok else '❌'} | 量比{'✅' if vol_ok else '❌'} | 涨幅{'✅' if gain_ok else '❌'}")
         
         if check_trend(data):
             results.append({
@@ -142,7 +135,6 @@ def main():
                 'ma5': data['ma5'],
                 'ma10': data['ma10'],
                 'ma20': data['ma20'],
-                'turnover': data['turnover'],
                 'vol_ratio': vol_ratio,
                 'gain_20d': data['gain_20d'],
                 'max_retrace': data['max_retrace']
@@ -155,7 +147,7 @@ def main():
     print(f"筛选完成！共 {len(results)} 只股票符合条件")
     
     for r in results:
-        print(f"{r['code']} {r['name']} | 收盘{r['close']:.2f} | MA5>{r['ma5']:.2f} | 换手{r['turnover']:.1f}% | 量比{r['vol_ratio']:.2f} | 20日涨幅{r['gain_20d']:.1f}% | 回撤{r['max_retrace']:.1f}%")
+        print(f"{r['code']} {r['name']} | 收盘{r['close']:.2f} | 量比{r['vol_ratio']:.2f} | 20日涨幅{r['gain_20d']:.1f}% | 回撤{r['max_retrace']:.1f}%")
 
 if __name__ == "__main__":
     main()
