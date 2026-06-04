@@ -1,28 +1,22 @@
 import tushare as ts
 import pandas as pd
-import smtplib
-from email.mime.text import MIMEText
-from email.header import Header
-from datetime import datetime
 import os
+from datetime import datetime
 
 # ========== 配置区 ==========
 TS_TOKEN = os.environ.get('TUSHARE_TOKEN')
-SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
-SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD')
-RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL')
 
 # ========== 回测设置 ==========
 BACKTEST_DATE = '20260112'  # 改成你想回测的日期
 TEST_STOCKS = ['000510.SZ', '002859.SZ']
 # ========== 配置结束 ==========
 
-# 筛选参数（去掉换手率）
-MAX_RETRACE = 12
+# 调整后的筛选参数
+MAX_RETRACE = 18          # 最大回撤18%
 MIN_VOL_RATIO = 0.8
 MAX_VOL_RATIO = 3.5
-MIN_GAIN_20D = 10
-MAX_GAIN_20D = 60
+MIN_GAIN_20D = 5          # 最小涨幅5%
+MAX_GAIN_20D = 80         # 最大涨幅80%
 
 ts.set_token(TS_TOKEN)
 pro = ts.pro_api()
@@ -37,7 +31,6 @@ def get_all_stocks():
 
 def get_ma_data(code, end_date):
     try:
-        # 去掉 turnover_rate 字段
         df = pro.daily(ts_code=code, start_date='', end_date=end_date, limit=80,
                        fields='trade_date,close,vol')
         if df is None or len(df) < 60:
