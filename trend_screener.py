@@ -11,6 +11,8 @@ TS_TOKEN = os.environ.get('TUSHARE_TOKEN')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
 SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD')
 RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL')
+BACKTEST_DATE = '20250112'
+TEST_STOCKS = ['000510.SZ']
 # ========== 配置结束 ==========
 
 # 筛选参数
