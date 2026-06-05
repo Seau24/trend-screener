@@ -2,8 +2,8 @@ name: Daily Trend Screener
 
 on:
   schedule:
-    - cron: '0 8 * * 1-5'
-  workflow_dispatch:
+    - cron: '0 8 * * 1-5'   # 工作日北京时间 16:00 运行
+  workflow_dispatch:         # 允许手动触发
 
 jobs:
   run-screener:
@@ -14,8 +14,7 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
-        run: |
-          pip install tushare pandas
+        run: pip install tushare pandas
       - name: Run screener
         env:
           TUSHARE_TOKEN: ${{ secrets.TUSHARE_TOKEN }}
