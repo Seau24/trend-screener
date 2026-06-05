@@ -8,37 +8,41 @@ from datetime import datetime, timedelta
 import os
 import time
 
-# ========== 配置（从 GitHub Secrets 读取）==========
+# ========== 配置 ==========
 TS_TOKEN = os.environ.get('TUSHARE_TOKEN')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL')
 SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD')
 RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL')
 
-# ========== 筛选参数 ==========
+# 筛选参数
 MAX_PRICE = 60                 # 股价 < 75元
 MIN_GAIN_10D = 10              # 10日涨幅 ≥ 10%
 CONSECUTIVE_DAYS = 6           # 连续6日收盘 > MA10
+
+# 手动指定交易日（格式 YYYYMMDD），留空则自动获取
+MANUAL_DATE = '20260604'       # ← 请改成你想要的交易日（比如今天或最近交易日）
 
 ts.set_token(TS_TOKEN)
 pro = ts.pro_api()
 
 def get_last_trade_date():
-    """获取上一个交易日"""
-    today = datetime.now().strftime('%Y%m%d')
-    df = pro.trade_cal(exchange='SSE', start_date='20200101', end_date=today)
-    if df is None or len(df) == 0:
-        return today
-    # 过滤出交易日且日期 <= today
-    trade_days = df[(df['is_open'] == 1) & (df['cal_date'] <= today)]['cal_date'].tolist()
-    if not trade_days:
-        return today
-    return trade_days[-1]
+    """自动获取上一个交易日（如果手动指定了则不会调用）"""
+    try:
+        today = datetime.now().strftime('%Y%m%d')
+        df = pro.trade_cal(exchange='SSE', start_date='20200101', end_date=today)
+        if df is None or len(df) == 0:
+            print("获取交易日历失败，使用今天")
+            return today
+        trade_days = df[(df['is_open'] == 1) & (df['cal_date'] <= today)]['cal_date'].tolist()
+        if not trade_days:
+            return today
+        return trade_days[-1]
+    except Exception as e:
+        print(f"获取交易日出错: {e}，使用今天")
+        return datetime.now().strftime('%Y%m%d')
 
 def get_batch_daily_data(trade_date):
-    """
-    一次请求获取当日所有股票的日线数据（避免循环调用）
-    返回 DataFrame，包含 ts_code, close, vol, pct_chg 等
-    """
+    """一次请求获取当日所有股票的日线数据"""
     try:
         df = pro.daily(trade_date=trade_date, fields='ts_code,close,vol,pct_chg')
         if df is None or len(df) == 0:
@@ -62,60 +66,41 @@ def get_stock_history(ts_code, end_date):
         return None
 
 def check_stock(df_history, ts_code, name, trade_date):
-    """使用历史数据判断是否符合条件"""
     if df_history is None or len(df_history) < CONSECUTIVE_DAYS + 10:
         return None
-    
-    # 计算均线
     df_history['ma5'] = df_history['close'].rolling(5).mean()
     df_history['ma10'] = df_history['close'].rolling(10).mean()
     df_history['ma20'] = df_history['close'].rolling(20).mean()
-    
-    # 计算 MACD
     exp1 = df_history['close'].ewm(span=12, adjust=False).mean()
     exp2 = df_history['close'].ewm(span=26, adjust=False).mean()
     df_history['dif'] = exp1 - exp2
     df_history['dea'] = df_history['dif'].ewm(span=9, adjust=False).mean()
-    
     latest = df_history.iloc[-1]
-    
-    # 股价限制
     if latest['close'] >= MAX_PRICE:
         return None
-    
-    # 均线多头排列
     if latest['ma5'] <= latest['ma10'] or latest['ma10'] <= latest['ma20']:
         return None
-    
-    # 连续 N 日收盘 > MA10
     if len(df_history) < CONSECUTIVE_DAYS:
         return None
     last_n = df_history.iloc[-CONSECUTIVE_DAYS:]
     for i in range(len(last_n)):
         if last_n.iloc[i]['close'] <= last_n.iloc[i]['ma10']:
             return None
-    
-    # 10日涨幅
     if len(df_history) < 11:
         return None
     close_10d_ago = df_history.iloc[-11]['close']
     gain_10d = (latest['close'] - close_10d_ago) / close_10d_ago * 100
     if gain_10d < MIN_GAIN_10D:
         return None
-    
-    # 10日内最低价不低于 MA20
     last_10 = df_history.iloc[-10:]
     for i in range(len(last_10)):
         if last_10.iloc[i]['low'] < last_10.iloc[i]['ma20']:
             return None
-    
-    # MACD 上升
     if len(df_history) >= 2:
         if latest['dif'] <= latest['dea'] or latest['dif'] <= df_history.iloc[-2]['dif']:
             return None
     else:
         return None
-    
     return {
         'code': ts_code.split('.')[0],
         'name': name,
@@ -150,10 +135,8 @@ def send_email(results, date_str):
         for r in results:
             body += f"【{r['code']}】{r['name']}\n"
             body += f"  收盘：{r['close']:.2f}\n"
-            body += f"  均线：MA5={r['ma5']:.2f} MA10={r['ma10']:.2f} MA20={r['ma20']:.2f}\n"
             body += f"  10日涨幅：{r['gain_10d']:.1f}%\n"
-            body += f"  MACD：DIF={r['dif']:.4f} DEA={r['dea']:.4f}\n\n"
-    
+            body += f"  MACD：{r['dif']:.4f}\n\n"
     try:
         msg = MIMEText(body, 'plain', 'utf-8')
         msg['Subject'] = Header(subject, 'utf-8')
@@ -170,48 +153,43 @@ def send_email(results, date_str):
 
 def main():
     print("=" * 60)
-    print("趋势票筛选器启动（优化版）")
+    print("趋势票筛选器启动")
     
-    # 获取上一个交易日
-    trade_date = get_last_trade_date()
-    print(f"参考交易日：{trade_date}")
+    if MANUAL_DATE:
+        trade_date = MANUAL_DATE
+        print(f"使用手动指定日期：{trade_date}")
+    else:
+        trade_date = get_last_trade_date()
+        print(f"自动获取交易日：{trade_date}")
     
-    # 批量获取当日所有股票的日线数据（一次请求，避免频率超限）
     daily_df = get_batch_daily_data(trade_date)
     if daily_df.empty:
-        print("无法获取当日股票数据，请检查网络或 Tushare 积分")
+        print("无法获取当日股票数据")
         return
-    
-    # 筛选沪深主板（60、00开头）且股价<75元
     daily_df['code'] = daily_df['ts_code'].str.split('.').str[0]
     daily_df = daily_df[daily_df['code'].str.startswith(('60', '00'))]
     daily_df = daily_df[daily_df['close'] < MAX_PRICE]
-    
-    # 剔除 ST（需要获取名称，这里简化：先保留，后续历史检查会剔除）
     stock_list = daily_df['ts_code'].tolist()
-    print(f"初步筛选后剩余 {len(stock_list)} 只股票（主板 + 股价<{MAX_PRICE}元）")
+    print(f"初步筛选后剩余 {len(stock_list)} 只股票")
     
     results = []
     total = len(stock_list)
     for i, ts_code in enumerate(stock_list):
         if (i+1) % 20 == 0:
             print(f"已处理 {i+1}/{total} 只")
-        # 获取股票名称（用于剔除ST）
         name = get_stock_name(ts_code)
-        if name is None:  # ST股
+        if name is None:
             continue
-        # 获取历史数据（仅对候选股调用，大大减少请求量）
         hist = get_stock_history(ts_code, trade_date)
         if hist is None:
             continue
-        result = check_stock(hist, ts_code, name, trade_date)
-        if result:
-            results.append(result)
-            print(f"  ✅ {result['code']} {result['name']}")
-        # 适当休眠，避免超限
+        res = check_stock(hist, ts_code, name, trade_date)
+        if res:
+            results.append(res)
+            print(f"  ✅ {res['code']} {res['name']}")
         time.sleep(0.2)
     
-    print(f"\n筛选完成！共 {len(results)} 只股票符合条件")
+    print(f"\n筛选完成！共 {len(results)} 只")
     send_email(results, trade_date)
 
 if __name__ == "__main__":
