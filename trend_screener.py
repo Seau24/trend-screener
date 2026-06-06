@@ -15,13 +15,13 @@ SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD')
 RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL')
 
 # ========== 筛选参数（可在此调整）==========
-MAX_PRICE = 60                 # 股价 < 60元
+MAX_PRICE = 70                 # 股价 ≤ 70 元
 MIN_GAIN_10D = 10              # 10日涨幅 ≥ 10%
 CONSECUTIVE_DAYS_MA5 = 5       # 连续5日收盘 > MA5
 CONSECUTIVE_DAYS_MA10 = 5      # 连续5日最低价 ≥ MA10（盘中不破）
 
 # 手动指定交易日（格式 YYYYMMDD），留空则自动获取上一个交易日
-MANUAL_DATE = '20260605'       # 请改成你想要的交易日
+MANUAL_DATE = ''               # 留空，程序自动获取上一个交易日
 
 ts.set_token(TS_TOKEN)
 pro = ts.pro_api()
@@ -82,8 +82,8 @@ def check_stock(df_history, ts_code, name, trade_date):
 
     latest = df_history.iloc[-1]
 
-    # 1. 股价限制
-    if latest['close'] >= MAX_PRICE:
+    # 1. 股价限制（≤ 70元）
+    if latest['close'] > MAX_PRICE:
         return None
 
     # 2. 均线多头排列
@@ -148,7 +148,7 @@ def get_stock_name(ts_code):
 def send_email(results, date_str):
     if not results:
         subject = f"趋势票筛选 - {date_str} - 无符合"
-        body = f"日期：{date_str}\n\n今日无股票符合条件。\n\n当前条件：\n- 沪深主板，非ST\n- 股价 < {MAX_PRICE}元\n- MA5 > MA10 > MA20\n- 连续{CONSECUTIVE_DAYS_MA5}日收盘 > MA5 且 最低价 ≥ MA10\n- 10日涨幅 ≥ {MIN_GAIN_10D}%\n- 10日内最低价 ≥ MA20\n- MACD上升（DIF > DEA 且 DIF 上升）"
+        body = f"日期：{date_str}\n\n今日无股票符合条件。\n\n当前条件：\n- 沪深主板，非ST\n- 股价 ≤ {MAX_PRICE}元\n- MA5 > MA10 > MA20\n- 连续{CONSECUTIVE_DAYS_MA5}日收盘 > MA5 且 最低价 ≥ MA10\n- 10日涨幅 ≥ {MIN_GAIN_10D}%\n- 10日内最低价 ≥ MA20\n- MACD上升（DIF > DEA 且 DIF 上升）"
     else:
         subject = f"趋势票筛选 - {date_str} - 发现{len(results)}只"
         body = f"日期：{date_str}\n\n发现 {len(results)} 只股票符合条件：\n\n"
@@ -158,7 +158,7 @@ def send_email(results, date_str):
             body += f"  均线：MA5={r['ma5']:.2f}  MA10={r['ma10']:.2f}  MA20={r['ma20']:.2f}\n"
             body += f"  10日涨幅：{r['gain_10d']:.1f}%\n"
             body += f"  MACD：DIF={r['dif']:.4f}  DEA={r['dea']:.4f}\n\n"
-        body += f"条件：股价<{MAX_PRICE}元，连续{CONSECUTIVE_DAYS_MA5}日收盘>MA5且最低≥MA10，10日涨幅≥{MIN_GAIN_10D}%，10日低点≥MA20，MACD上升。"
+        body += f"条件：股价≤{MAX_PRICE}元，连续{CONSECUTIVE_DAYS_MA5}日收盘>MA5且最低≥MA10，10日涨幅≥{MIN_GAIN_10D}%，10日低点≥MA20，MACD上升。"
     try:
         msg = MIMEText(body, 'plain', 'utf-8')
         msg['Subject'] = Header(subject, 'utf-8')
@@ -181,7 +181,7 @@ def main():
         print(f"使用手动指定日期：{trade_date}")
     else:
         trade_date = get_last_trade_date()
-        print(f"自动获取交易日：{trade_date}")
+        print(f"自动获取上一个交易日：{trade_date}")
 
     daily_df = get_batch_daily_data(trade_date)
     if daily_df.empty:
@@ -189,9 +189,9 @@ def main():
         return
     daily_df['code'] = daily_df['ts_code'].str.split('.').str[0]
     daily_df = daily_df[daily_df['code'].str.startswith(('60', '00'))]
-    daily_df = daily_df[daily_df['close'] < MAX_PRICE]
+    daily_df = daily_df[daily_df['close'] <= MAX_PRICE]   # ≤ 70元
     stock_list = daily_df['ts_code'].tolist()
-    print(f"初步筛选后剩余 {len(stock_list)} 只股票（主板 + 股价<{MAX_PRICE}元）")
+    print(f"初步筛选后剩余 {len(stock_list)} 只股票（主板 + 股价≤{MAX_PRICE}元）")
 
     results = []
     total = len(stock_list)
