@@ -27,20 +27,26 @@ ts.set_token(TS_TOKEN)
 pro = ts.pro_api()
 
 def get_last_trade_date():
-    """自动获取上一个交易日"""
+    """自动获取上一个交易日（增强版）"""
     try:
         today = datetime.now().strftime('%Y%m%d')
+        # 获取沪深交易所交易日历（取近3个月足够）
         df = pro.trade_cal(exchange='SSE', start_date='20200101', end_date=today)
         if df is None or len(df) == 0:
+            print("警告：获取交易日历失败，使用今天")
             return today
+        # 过滤出交易日且日期 <= 今天
         trade_days = df[(df['is_open'] == 1) & (df['cal_date'] <= today)]['cal_date'].tolist()
         if not trade_days:
+            print("警告：无交易日，使用今天")
             return today
-        return trade_days[-1]
+        last_trade = trade_days[-1]
+        print(f"自动获取上一个交易日：{last_trade}")
+        return last_trade
     except Exception as e:
-        print(f"获取交易日出错: {e}，使用今天")
+        print(f"获取交易日出错：{e}，使用今天")
         return datetime.now().strftime('%Y%m%d')
-
+        
 def get_batch_daily_data(trade_date):
     """一次请求获取当日所有股票的日线数据"""
     try:
