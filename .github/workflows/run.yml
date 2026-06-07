@@ -1,8 +1,6 @@
 name: Daily Trend Screener
 
 on:
-  schedule:
-    - cron: '0 20 * * 1-5'   # UTC 20:00 = 北京时间次日 04:00，仅工作日
   workflow_dispatch:
 
 jobs:
