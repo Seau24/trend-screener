@@ -20,33 +20,18 @@ MIN_GAIN_10D = 10              # 10日涨幅 ≥ 10%
 CONSECUTIVE_DAYS_MA5 = 5       # 连续5日收盘 > MA5
 CONSECUTIVE_DAYS_MA10 = 5      # 连续5日最低价 ≥ MA10（盘中不破）
 
-# 手动指定交易日（格式 YYYYMMDD），留空则自动获取上一个交易日
-MANUAL_DATE = ''               # 留空，程序自动获取上一个交易日
+# ========== 手动指定交易日（必填）==========
+# 格式 YYYYMMDD，例如 20260605 表示 2026年6月5日
+# 该日期必须是交易日，且当日的日线数据已存在
+MANUAL_DATE = '20260605'       # 请每次运行前修改为你要筛选的日期
+
+# 如果 MANUAL_DATE 为空，程序会报错退出
+if not MANUAL_DATE:
+    raise ValueError("错误：请在代码中设置 MANUAL_DATE 为要筛选的日期（例如 '20260605'）")
 
 ts.set_token(TS_TOKEN)
 pro = ts.pro_api()
 
-def get_last_trade_date():
-    """自动获取上一个交易日（增强版）"""
-    try:
-        today = datetime.now().strftime('%Y%m%d')
-        # 获取沪深交易所交易日历（取近3个月足够）
-        df = pro.trade_cal(exchange='SSE', start_date='20200101', end_date=today)
-        if df is None or len(df) == 0:
-            print("警告：获取交易日历失败，使用今天")
-            return today
-        # 过滤出交易日且日期 <= 今天
-        trade_days = df[(df['is_open'] == 1) & (df['cal_date'] <= today)]['cal_date'].tolist()
-        if not trade_days:
-            print("警告：无交易日，使用今天")
-            return today
-        last_trade = trade_days[-1]
-        print(f"自动获取上一个交易日：{last_trade}")
-        return last_trade
-    except Exception as e:
-        print(f"获取交易日出错：{e}，使用今天")
-        return datetime.now().strftime('%Y%m%d')
-        
 def get_batch_daily_data(trade_date):
     """一次请求获取当日所有股票的日线数据"""
     try:
@@ -182,20 +167,18 @@ def send_email(results, date_str):
 def main():
     print("=" * 60)
     print("趋势票筛选器启动")
-    if MANUAL_DATE:
-        trade_date = MANUAL_DATE
-        print(f"使用手动指定日期：{trade_date}")
-    else:
-        trade_date = get_last_trade_date()
-        print(f"自动获取上一个交易日：{trade_date}")
+    trade_date = MANUAL_DATE
+    print(f"手动指定交易日：{trade_date}")
 
+    # 检查该日期是否为交易日（简单验证：能否获取到数据）
     daily_df = get_batch_daily_data(trade_date)
     if daily_df.empty:
-        print("无法获取当日股票数据，请检查网络或 Tushare 积分")
+        print(f"错误：无法获取 {trade_date} 的日线数据，请确认该日期是交易日且 Tushare 有数据")
         return
+
     daily_df['code'] = daily_df['ts_code'].str.split('.').str[0]
     daily_df = daily_df[daily_df['code'].str.startswith(('60', '00'))]
-    daily_df = daily_df[daily_df['close'] <= MAX_PRICE]   # ≤ 70元
+    daily_df = daily_df[daily_df['close'] <= MAX_PRICE]
     stock_list = daily_df['ts_code'].tolist()
     print(f"初步筛选后剩余 {len(stock_list)} 只股票（主板 + 股价≤{MAX_PRICE}元）")
 
