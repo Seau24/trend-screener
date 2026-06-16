@@ -15,7 +15,7 @@ SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD')
 RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL')
 
 # ========== 筛选参数（可在此调整）==========
-MAX_PRICE = 70                 # 股价 ≤ 70 元
+MAX_PRICE = 80                 # 股价 ≤ 80 元
 MIN_GAIN_10D = 10              # 10日涨幅 ≥ 10%
 CONSECUTIVE_DAYS_MA5 = 5       # 连续5日收盘 > MA5
 CONSECUTIVE_DAYS_MA10 = 5      # 连续5日最低价 ≥ MA10（盘中不破）
@@ -23,7 +23,7 @@ CONSECUTIVE_DAYS_MA10 = 5      # 连续5日最低价 ≥ MA10（盘中不破）
 # ========== 手动指定交易日（必填）==========
 # 格式 YYYYMMDD，例如 20260605 表示 2026年6月5日
 # 该日期必须是交易日，且当日的日线数据已存在
-MANUAL_DATE = '20260615'       # 请每次运行前修改为你要筛选的日期
+MANUAL_DATE = '20260616'       # 请每次运行前修改为你要筛选的日期
 
 # 如果 MANUAL_DATE 为空，程序会报错退出
 if not MANUAL_DATE:
