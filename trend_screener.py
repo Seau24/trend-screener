@@ -23,7 +23,7 @@ CONSECUTIVE_DAYS_MA10 = 5      # 连续5日最低价 ≥ MA10（盘中不破）
 # ========== 手动指定交易日（必填）==========
 # 格式 YYYYMMDD，例如 20260605 表示 2026年6月5日
 # 该日期必须是交易日，且当日的日线数据已存在
-MANUAL_DATE = '20260708'       # 请每次运行前修改为你要筛选的日期
+MANUAL_DATE = '20260709'       # 请每次运行前修改为你要筛选的日期
 
 # 如果 MANUAL_DATE 为空，程序会报错退出
 if not MANUAL_DATE:
@@ -99,10 +99,10 @@ def check_stock(df_history, ts_code, name, trade_date):
     if gain_10d < MIN_GAIN_10D:
         return None
 
-    # 5. 10日内最低价不低于 MA20
-    last_10 = df_history.iloc[-10:]
-    for i in range(len(last_10)):
-        if last_10.iloc[i]['low'] < last_10.iloc[i]['ma20']:
+    # 5. 8日内最低价不低于 MA20
+    last_8 = df_history.iloc[-8:]
+    for i in range(len(last_8)):
+        if last_8.iloc[i]['low'] < last_10.iloc[i]['ma20']:
             return None
 
     # 6. MACD 上升（DIF > DEA 且 DIF 较前一日上升）
