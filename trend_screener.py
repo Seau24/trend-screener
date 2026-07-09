@@ -99,10 +99,10 @@ def check_stock(df_history, ts_code, name, trade_date):
     if gain_10d < MIN_GAIN_10D:
         return None
 
-    # 5. 8日内最低价不低于 MA20
-    last_8 = df_history.iloc[-8:]
-    for i in range(len(last_8)):
-        if last_8.iloc[i]['low'] < last_10.iloc[i]['ma20']:
+    # 5. 10日内最低价不低于 MA20
+    last_10 = df_history.iloc[-10:]
+    for i in range(len(last_10)):
+        if last_10.iloc[i]['low'] < last_10.iloc[i]['ma20']:
             return None
 
     # 6. MACD 上升（DIF > DEA 且 DIF 较前一日上升）
