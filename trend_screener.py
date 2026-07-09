@@ -15,17 +15,15 @@ SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD')
 RECEIVER_EMAIL = os.environ.get('RECEIVER_EMAIL')
 
 # ========== 筛选参数（可在此调整）==========
-MAX_PRICE = 100                 # 股价 ≤ 80 元
+MAX_PRICE = 80                 # 股价 ≤ 80 元
 MIN_GAIN_10D = 10              # 10日涨幅 ≥ 10%
 CONSECUTIVE_DAYS_MA5 = 5       # 连续5日收盘 > MA5
 CONSECUTIVE_DAYS_MA10 = 5      # 连续5日最低价 ≥ MA10（盘中不破）
+CONSECUTIVE_DAYS_MA20 = 8      # 新增：连续8个交易日最低价不跌破MA20
 
 # ========== 手动指定交易日（必填）==========
-# 格式 YYYYMMDD，例如 20260605 表示 2026年6月5日
-# 该日期必须是交易日，且当日的日线数据已存在
-MANUAL_DATE = '20260709'       # 请每次运行前修改为你要筛选的日期
+MANUAL_DATE = '20260709'
 
-# 如果 MANUAL_DATE 为空，程序会报错退出
 if not MANUAL_DATE:
     raise ValueError("错误：请在代码中设置 MANUAL_DATE 为要筛选的日期（例如 '20260605'）")
 
@@ -46,7 +44,7 @@ def get_batch_daily_data(trade_date):
 def get_stock_history(ts_code, end_date):
     """获取单只股票的历史数据（仅对初步筛选后的股票调用）"""
     try:
-        df = pro.daily(ts_code=ts_code, start_date='', end_date=end_date, limit=100,
+        df = pro.daily(ts_code=ts_code, start_date='', end_date=end_date, limit=120,
                        fields='trade_date,close,low,vol,pct_chg')
         if df is None or len(df) < 20:
             return None
@@ -73,7 +71,7 @@ def check_stock(df_history, ts_code, name, trade_date):
 
     latest = df_history.iloc[-1]
 
-    # 1. 股价限制（≤ 70元）
+    # 1. 股价限制（≤ 80元）
     if latest['close'] > MAX_PRICE:
         return None
 
@@ -81,7 +79,7 @@ def check_stock(df_history, ts_code, name, trade_date):
     if latest['ma5'] <= latest['ma10'] or latest['ma10'] <= latest['ma20']:
         return None
 
-    # 3. 连续 N 日收盘 > MA5 且 最低价 ≥ MA10（盘中不破MA10）
+    # 3. 连续5日收盘 > MA5 且 最低价 ≥ MA10
     if len(df_history) < CONSECUTIVE_DAYS_MA5:
         return None
     last_n = df_history.iloc[-CONSECUTIVE_DAYS_MA5:]
@@ -91,7 +89,7 @@ def check_stock(df_history, ts_code, name, trade_date):
         if last_n.iloc[i]['low'] < last_n.iloc[i]['ma10']:
             return None
 
-    # 4. 10日涨幅
+    # 4. 10日涨幅 ≥ 10%
     if len(df_history) < 11:
         return None
     close_10d_ago = df_history.iloc[-11]['close']
@@ -99,10 +97,12 @@ def check_stock(df_history, ts_code, name, trade_date):
     if gain_10d < MIN_GAIN_10D:
         return None
 
-    # 5. 10日内最低价不低于 MA20
-    last_10 = df_history.iloc[-10:]
-    for i in range(len(last_10)):
-        if last_10.iloc[i]['low'] < last_10.iloc[i]['ma20']:
+    # 5. 连续8个交易日最低价不跌破MA20（新条件）
+    if len(df_history) < CONSECUTIVE_DAYS_MA20:
+        return None
+    last_8 = df_history.iloc[-CONSECUTIVE_DAYS_MA20:]
+    for i in range(len(last_8)):
+        if last_8.iloc[i]['low'] < last_8.iloc[i]['ma20']:
             return None
 
     # 6. MACD 上升（DIF > DEA 且 DIF 较前一日上升）
@@ -139,7 +139,7 @@ def get_stock_name(ts_code):
 def send_email(results, date_str):
     if not results:
         subject = f"趋势票筛选 - {date_str} - 无符合"
-        body = f"日期：{date_str}\n\n今日无股票符合条件。\n\n当前条件：\n- 沪深主板，非ST\n- 股价 ≤ {MAX_PRICE}元\n- MA5 > MA10 > MA20\n- 连续{CONSECUTIVE_DAYS_MA5}日收盘 > MA5 且 最低价 ≥ MA10\n- 10日涨幅 ≥ {MIN_GAIN_10D}%\n- 10日内最低价 ≥ MA20\n- MACD上升（DIF > DEA 且 DIF 上升）"
+        body = f"日期：{date_str}\n\n今日无股票符合条件。\n\n当前条件：\n- 沪深主板，非ST\n- 股价 ≤ {MAX_PRICE}元\n- MA5 > MA10 > MA20\n- 连续{CONSECUTIVE_DAYS_MA5}日收盘 > MA5 且 最低价 ≥ MA10\n- 10日涨幅 ≥ {MIN_GAIN_10D}%\n- 连续{CONSECUTIVE_DAYS_MA20}个交易日最低价不跌破MA20\n- MACD上升（DIF > DEA 且 DIF 上升）"
     else:
         subject = f"趋势票筛选 - {date_str} - 发现{len(results)}只"
         body = f"日期：{date_str}\n\n发现 {len(results)} 只股票符合条件：\n\n"
@@ -149,7 +149,7 @@ def send_email(results, date_str):
             body += f"  均线：MA5={r['ma5']:.2f}  MA10={r['ma10']:.2f}  MA20={r['ma20']:.2f}\n"
             body += f"  10日涨幅：{r['gain_10d']:.1f}%\n"
             body += f"  MACD：DIF={r['dif']:.4f}  DEA={r['dea']:.4f}\n\n"
-        body += f"条件：股价≤{MAX_PRICE}元，连续{CONSECUTIVE_DAYS_MA5}日收盘>MA5且最低≥MA10，10日涨幅≥{MIN_GAIN_10D}%，10日低点≥MA20，MACD上升。"
+        body += f"条件：股价≤{MAX_PRICE}元，连续{CONSECUTIVE_DAYS_MA5}日收盘>MA5且最低≥MA10，10日涨幅≥{MIN_GAIN_10D}%，连续{CONSECUTIVE_DAYS_MA20}个交易日最低价不跌破MA20，MACD上升。"
     try:
         msg = MIMEText(body, 'plain', 'utf-8')
         msg['Subject'] = Header(subject, 'utf-8')
@@ -170,7 +170,6 @@ def main():
     trade_date = MANUAL_DATE
     print(f"手动指定交易日：{trade_date}")
 
-    # 检查该日期是否为交易日（简单验证：能否获取到数据）
     daily_df = get_batch_daily_data(trade_date)
     if daily_df.empty:
         print(f"错误：无法获取 {trade_date} 的日线数据，请确认该日期是交易日且 Tushare 有数据")
