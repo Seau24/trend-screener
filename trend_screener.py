@@ -22,7 +22,7 @@ CONSECUTIVE_DAYS_MA10 = 5      # 连续5日最低价 ≥ MA10（盘中不破）
 CONSECUTIVE_DAYS_MA20 = 8      # 新增：连续8个交易日最低价不跌破MA20
 
 # ========== 手动指定交易日（必填）==========
-MANUAL_DATE = '20260713'
+MANUAL_DATE = '20260714'
 
 if not MANUAL_DATE:
     raise ValueError("错误：请在代码中设置 MANUAL_DATE 为要筛选的日期（例如 '20260605'）")
